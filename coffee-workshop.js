@@ -1,6 +1,21 @@
 const express = require('express');
 const { Client, middleware } = require('@line/bot-sdk');
 const { createMenuFlexMessage, createPromotionFlexMessage } = require('./menuComponent');
+const {
+    handleOrderRequest,
+    handleQuantitySelection,
+    handleSweetnessSelection,
+    handleOrderConfirmation,
+    handleOrderCancel,
+    isOrderCommand,
+    extractMenuId,
+    isQuantitySelection,
+    extractQuantity,
+    isSweetnessSelection,
+    extractSweetness,
+    isOrderConfirm,
+    isOrderCancel
+} = require('./orderComponent');
 const db = require('./db');
 const cors = require('cors');
 require('dotenv').config();
@@ -67,6 +82,25 @@ app.post('/api/promotions', async (req, res) => {
     }
 });
 
+// Endpoint ดูประวัติการสั่งซื้อ
+app.get('/api/orders/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const [rows] = await db.query(`
+            SELECT o.*, m.name as menu_name, m.image_url 
+            FROM orders o 
+            JOIN menu m ON o.menu_id = m.id 
+            WHERE o.user_id = ? 
+            ORDER BY o.order_date DESC 
+            LIMIT 10
+        `, [userId]);
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching orders:', error);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลคำสั่งซื้อ' });
+    }
+});
+
 // จัดการข้อความที่ส่งเข้ามา
 async function handleEvent(event) {
     try {
@@ -75,6 +109,7 @@ async function handleEvent(event) {
         const { text } = event.message;
         const userId = event.source.userId;
 
+        // ระบบสมัครสมาชิก
         if (text === 'สมัครสมาชิก' || text === 'register') {
             const [rows] = await db.query('SELECT * FROM users WHERE line_id = ?', [userId]);
 
@@ -101,26 +136,68 @@ async function handleEvent(event) {
 
                 return client.replyMessage(event.replyToken, {
                     type: 'text',
-                    text: `ยินดีต้อนรับคุณ ${displayName} สมัครสมาชิกเรียบร้อยแล้ว 🎉`,
+                    text: `ยินดีต้อนรับคุณ ${displayName} สมัครสมาชิกเรียบร้อยแล้ว 🎉\nแต้มปัจจุบัน: 0 แต้ม`
                 });
             } else {
                 return client.replyMessage(event.replyToken, {
                     type: 'text',
-                    text: `คุณได้สมัครสมาชิกแล้วครับ มีแต้ม ${rows[0].points} แต้ม 🎯`,
+                    text: `คุณได้สมัครสมาชิกแล้วครับ 🎯\nชื่อ: ${rows[0].name}\nแต้มปัจจุบัน: ${rows[0].points} แต้ม`
                 });
             }
         }
 
+        // ระบบสั่งซื้อ - เริ่มต้นสั่งซื้อ
+        if (isOrderCommand(text)) {
+            const menuId = extractMenuId(text);
+            if (menuId) {
+                const flexMessage = await handleOrderRequest(menuId, db, userId);
+                return client.replyMessage(event.replyToken, flexMessage);
+            }
+        }
+
+        // ระบบสั่งซื้อ - เลือกจำนวน
+        if (isQuantitySelection(text)) {
+            const quantity = extractQuantity(text);
+            if (quantity) {
+                const flexMessage = await handleQuantitySelection(userId, quantity);
+                return client.replyMessage(event.replyToken, flexMessage);
+            }
+        }
+
+        // ระบบสั่งซื้อ - เลือกความหวาน
+        if (isSweetnessSelection(text)) {
+            const sweetness = extractSweetness(text);
+            if (sweetness) {
+                const flexMessage = await handleSweetnessSelection(userId, sweetness);
+                return client.replyMessage(event.replyToken, flexMessage);
+            }
+        }
+
+        // ระบบสั่งซื้อ - ยืนยันคำสั่งซื้อ
+        if (isOrderConfirm(text)) {
+            const response = await handleOrderConfirmation(userId, db);
+            return client.replyMessage(event.replyToken, response);
+        }
+
+        // ระบบสั่งซื้อ - ยกเลิกคำสั่งซื้อ
+        if (isOrderCancel(text)) {
+            const response = await handleOrderCancel(userId);
+            return client.replyMessage(event.replyToken, response);
+        }
+
+        // แสดงเมนู
         if (text.trim().toLowerCase() === 'รายการเครื่องดื่ม' || text.trim().toLowerCase() === 'รายการเครื่องดื่มทั้งหมด') {
             const flexMessage = await createMenuFlexMessage(text, db, event);
             return client.replyMessage(event.replyToken, flexMessage);
         }
 
+        // แสดงโปรโมชัน
         if (text.trim().toLowerCase() === 'โปรโมชั่น' || text.trim().toLowerCase() === 'promotion') {
             const flexMessage = await createPromotionFlexMessage(db, event);
             return client.replyMessage(event.replyToken, flexMessage);
         }
 
+        // แสดงแผนที่ร้าน
         if (text.trim().toLowerCase() === 'แผนที่ร้าน' || text.trim().toLowerCase() === 'เเผนที่ร้าน') {
             const [rows] = await db.query('SELECT name, address, latitude, longitude FROM shop LIMIT 1');
 
@@ -139,6 +216,62 @@ async function handleEvent(event) {
                 address: shop.address,
                 latitude: parseFloat(shop.latitude),
                 longitude: parseFloat(shop.longitude),
+            });
+        }
+
+        // ดูประวัติการสั่งซื้อ
+        if (text.trim().toLowerCase() === 'ประวัติสั่งซื้อ' || text.trim().toLowerCase() === 'order history') {
+            const [orderRows] = await db.query(`
+            SELECT o.*, m.name as menu_name 
+            FROM orders o 
+            JOIN menu m ON o.menu_id = m.id 
+            WHERE o.user_id = ? 
+            ORDER BY o.order_date DESC 
+            LIMIT 5
+                `, [userId]);
+
+            const [userRows] = await db.query('SELECT points FROM users WHERE line_id = ?', [userId]);
+
+            if (orderRows.length === 0) {
+                return client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: `คุณยังไม่มีประวัติการสั่งซื้อ\n🎯 แต้มปัจจุบัน: ${userRows[0]?.points || 0} แต้ม`
+                });
+            }
+
+            let historyText = `📋 ประวัติการสั่งซื้อ 5 รายการล่าสุด:\n\n`;
+            orderRows.forEach((order, index) => {
+                const orderDate = new Date(order.order_date).toLocaleDateString('th-TH');
+                historyText += `${index + 1}. ${order.menu_name}\n`;
+                historyText += `   จำนวน: ${order.quantity} แก้ว\n`;
+                historyText += `   ความหวาน: ${order.sweetness_level}\n`;
+                historyText += `   ราคา: ฿${order.total_price.toFixed(2)}\n`;
+                historyText += `   วันที่: ${orderDate}\n`;
+                historyText += `   สถานะ: ${order.status === 'pending' ? 'รอดำเนินการ' : 'สำเร็จ'}\n\n`;
+            });
+            historyText += `🎯 แต้มปัจจุบัน: ${userRows[0]?.points || 0} แต้ม`;
+
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: historyText
+            });
+        }
+
+        // ข้อความช่วยเหลือ
+        if (text.trim().toLowerCase() === 'help' || text.trim().toLowerCase() === 'ช่วยเหลือ') {
+            const helpText = `🤖 คำสั่งที่ใช้ได้:\n\n` +
+                `📋 "รายการเครื่องดื่ม" - ดูเมนูทั้งหมด\n` +
+                `🎉 "โปรโมชั่น" - ดูโปรโมชันปัจจุบัน\n` +
+                `🗺️ "แผนที่ร้าน" - ดูที่ตั้งร้าน\n` +
+                `👤 "สมัครสมาชิก" - สมัครสมาชิกรับแต้ม\n` +
+                `📜 "ประวัติสั่งซื้อ" - ดูประวัติการสั่งซื้อและแต้ม\n` +
+                `🛒 กดปุ่ม "Order Now" ในเมนูเพื่อสั่งซื้อ\n\n` +
+                `🎯 ระบบแต้ม: รับ 1 แต้มทุก ๆ 50 บาทที่ใช้จ่าย\n` +
+                `💡 เคล็ดลับ: คุณสามารถเลือกจำนวนและความหวานได้เมื่อสั่งซื้อ!`;
+
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: helpText
             });
         }
 
