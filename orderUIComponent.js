@@ -1,5 +1,3 @@
-// orderUIComponent.js - สร้าง UI สำหรับกระบวนการสั่งซื้อ
-
 /**
  * สร้าง Flex Message สำหรับเลือกจำนวน
  */
@@ -24,7 +22,7 @@ function createQuantitySelector(menuId, menuData) {
                     },
                     {
                         type: "text",
-                        text: "กรุณาเลือกจำนวนที่ต้องการสั่ง",
+                        text: "จำนวนที่ต้องการสั่ง หรือพิมพ์ 'จำนวน X แก้ว' ",
                         size: "sm",
                         color: "#8B5E3C",
                         align: "center",
@@ -88,7 +86,7 @@ function createQuantitySelector(menuId, menuData) {
                     // ปุ่มเลือกจำนวน
                     {
                         type: "text",
-                        text: "เลือกจำนวน:",
+                        text: "เลือกจำนวน (1-6):",
                         weight: "bold",
                         size: "md",
                         color: "#4A2F27",
@@ -105,7 +103,7 @@ function createQuantitySelector(menuId, menuData) {
                                 action: {
                                     type: "message",
                                     label: "1",
-                                    text: "qty_1"
+                                    text: "จำนวน 1 เเก้ว"
                                 },
                                 style: "primary",
                                 color: "#E8B923",
@@ -116,7 +114,7 @@ function createQuantitySelector(menuId, menuData) {
                                 action: {
                                     type: "message",
                                     label: "2",
-                                    text: "qty_2"
+                                    text: "จำนวน 2 เเก้ว"
                                 },
                                 style: "primary",
                                 color: "#E8B923",
@@ -127,7 +125,7 @@ function createQuantitySelector(menuId, menuData) {
                                 action: {
                                     type: "message",
                                     label: "3",
-                                    text: "qty_3"
+                                    text: "จำนวน 3 เเก้ว"
                                 },
                                 style: "primary",
                                 color: "#E8B923",
@@ -146,7 +144,7 @@ function createQuantitySelector(menuId, menuData) {
                                 action: {
                                     type: "message",
                                     label: "4",
-                                    text: "qty_4"
+                                    text: "จำนวน 4 เเก้ว"
                                 },
                                 style: "primary",
                                 color: "#E8B923",
@@ -157,7 +155,7 @@ function createQuantitySelector(menuId, menuData) {
                                 action: {
                                     type: "message",
                                     label: "5",
-                                    text: "qty_5"
+                                    text: "จำนวน 5 เเก้ว"
                                 },
                                 style: "primary",
                                 color: "#E8B923",
@@ -167,8 +165,8 @@ function createQuantitySelector(menuId, menuData) {
                                 type: "button",
                                 action: {
                                     type: "message",
-                                    label: "6+",
-                                    text: "qty_6"
+                                    label: "6",
+                                    text: "จำนวน 6 เเก้ว"
                                 },
                                 style: "primary",
                                 color: "#E8B923",
@@ -190,7 +188,7 @@ function createQuantitySelector(menuId, menuData) {
                         action: {
                             type: "message",
                             label: "❌ ยกเลิก",
-                            text: "cancel_order"
+                            text: "ยกเลิกออเดอร์"
                         },
                         style: "secondary",
                         color: "#999999"
@@ -315,7 +313,7 @@ function createSweetnessSelector(menuId, quantity, menuData) {
                                 action: {
                                     type: "message",
                                     label: "🧊 ไม่หวาน (0%)",
-                                    text: "sweet_ไม่หวาน"
+                                    text: "ไม่หวาน"
                                 },
                                 style: "secondary",
                                 color: "#B8860B"
@@ -325,7 +323,7 @@ function createSweetnessSelector(menuId, quantity, menuData) {
                                 action: {
                                     type: "message",
                                     label: "🍯 หวานน้อย (25%)",
-                                    text: "sweet_หวานน้อย"
+                                    text: "หวานน้อย"
                                 },
                                 style: "secondary",
                                 color: "#DAA520"
@@ -335,7 +333,7 @@ function createSweetnessSelector(menuId, quantity, menuData) {
                                 action: {
                                     type: "message",
                                     label: "🍯🍯 หวานปกติ (50%)",
-                                    text: "sweet_หวานปกติ"
+                                    text: "หวานปกติ"
                                 },
                                 style: "primary",
                                 color: "#E8B923"
@@ -345,7 +343,7 @@ function createSweetnessSelector(menuId, quantity, menuData) {
                                 action: {
                                     type: "message",
                                     label: "🍯🍯🍯 หวานมาก (75%)",
-                                    text: "sweet_หวานมาก"
+                                    text: "หวานมาก"
                                 },
                                 style: "secondary",
                                 color: "#FF8C00"
@@ -355,7 +353,7 @@ function createSweetnessSelector(menuId, quantity, menuData) {
                                 action: {
                                     type: "message",
                                     label: "🍯🍯🍯🍯 หวานจัด (100%)",
-                                    text: "sweet_หวานจัด"
+                                    text: "หวานจัด"
                                 },
                                 style: "secondary",
                                 color: "#FF6347"
@@ -376,7 +374,7 @@ function createSweetnessSelector(menuId, quantity, menuData) {
                         action: {
                             type: "message",
                             label: "❌ ยกเลิก",
-                            text: "cancel_order"
+                            text: "ยกเลิกออเดอร์"
                         },
                         style: "secondary",
                         color: "#999999"
@@ -392,7 +390,10 @@ function createSweetnessSelector(menuId, quantity, menuData) {
 /**
  * สร้าง Flex Message สำหรับยืนยันคำสั่งซื้อ
  */
-function createOrderConfirmation(orderData) {
+async function createOrderConfirmation(orderData, db) {
+    const [userRows] = await db.query('SELECT points FROM users WHERE line_id = ?', [orderData.userId]);
+    const availablePoints = userRows.length ? userRows[0].points : 0;
+
     return {
         type: "flex",
         altText: `ยืนยันคำสั่งซื้อ ${orderData.menuName}`,
@@ -456,10 +457,17 @@ function createOrderConfirmation(orderData) {
                             },
                             {
                                 type: "text",
-                                text: `💰 ฿${orderData.totalPrice.toFixed(2)}`,
+                                text: `💰 ราคารวม: ฿${orderData.totalPrice.toFixed(2)}`,
                                 size: "md",
                                 color: "#E8B923",
                                 weight: "bold"
+                            },
+                            {
+                                type: "text",
+                                text: `🎯 แต้มที่มี: ${availablePoints} แต้ม`,
+                                size: "sm",
+                                color: "#4A2F27",
+                                margin: "sm"
                             }
                         ],
                         paddingAll: "md"
@@ -475,25 +483,39 @@ function createOrderConfirmation(orderData) {
                         type: "button",
                         action: {
                             type: "message",
-                            label: "✅ ยืนยัน",
-                            text: "confirm_order"
+                            label: "✅ ยืนยัน (ไม่ใช้แต้ม)",
+                            text: "ยืนยันออเดอร์"
                         },
                         style: "primary",
                         color: "#E8B923",
-                        margin: "md" // เพิ่มระยะห่างล่างปุ่มยืนยัน
+                        margin: "md"
                     },
+                    ...(availablePoints > 0 ? [
+                        {
+                            type: "button",
+                            action: {
+                                type: "message",
+                                label: `🎯 ใช้แต้ม (${Math.min(availablePoints, orderData.totalPrice)} แต้ม)`,
+                                text: `ใช้แต้ม ${Math.min(availablePoints, orderData.totalPrice)}`
+                            },
+                            style: "primary",
+                            color: "#32CD32",
+                            margin: "sm"
+                        }
+                    ] : []),
                     {
                         type: "button",
                         action: {
                             type: "message",
                             label: "❌ ยกเลิก",
-                            text: "cancel_order"
+                            text: "ยกเลิกออเดอร์"
                         },
                         style: "secondary",
-                        color: "#999999"
+                        color: "#999999",
+                        margin: "sm"
                     }
                 ],
-                spacing: "lg", // เพิ่มระยะห่างระหว่างปุ่มทั้งสอง
+                spacing: "lg",
                 backgroundColor: "#F8F1E9",
                 paddingAll: "md"
             }

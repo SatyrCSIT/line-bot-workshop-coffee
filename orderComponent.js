@@ -1,8 +1,7 @@
-// orderComponent.js - จัดการคำสั่งซื้อและการเลือกออปชัน
-
 const { createQuantitySelector, createSweetnessSelector, createOrderConfirmation } = require('./orderUIComponent');
+const { usePoints, logPointUsage } = require('./pointComponent');
+const db = require('./db');
 
-// เก็บข้อมูลคำสั่งซื้อชั่วคราว
 const pendingOrders = new Map();
 
 /**
@@ -22,8 +21,8 @@ async function createSweetnessSelection(menuId, quantity, menuData) {
 /**
  * สร้าง Flex Message สำหรับยืนยันคำสั่งซื้อ
  */
-async function createOrderConfirmationMessage(orderData) {
-    return createOrderConfirmation(orderData);
+async function createOrderConfirmationMessage(orderData, db) {
+    return createOrderConfirmation(orderData, db);
 }
 
 /**
@@ -31,7 +30,6 @@ async function createOrderConfirmationMessage(orderData) {
  */
 async function handleOrderRequest(menuId, db, userId) {
     try {
-        // ดึงข้อมูลเมนู
         const [menuRows] = await db.query('SELECT * FROM menu WHERE id = ?', [menuId]);
 
         if (menuRows.length === 0) {
@@ -43,7 +41,6 @@ async function handleOrderRequest(menuId, db, userId) {
 
         const menuData = menuRows[0];
 
-        // สร้าง order session
         const orderSession = {
             menuId: menuId,
             menuData: menuData,
@@ -54,7 +51,6 @@ async function handleOrderRequest(menuId, db, userId) {
 
         pendingOrders.set(userId, orderSession);
 
-        // ส่งหน้าเลือกจำนวน
         return await createQuantitySelection(menuId, menuData);
 
     } catch (error) {
@@ -80,12 +76,18 @@ async function handleQuantitySelection(userId, quantity) {
             };
         }
 
-        // อัพเดทข้อมูลคำสั่งซื้อ
+        // ตรวจสอบว่า quantity เป็นตัวเลขและมากกว่า 0
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+            return {
+                type: 'text',
+                text: 'กรุณากรอกจำนวนเป็นตัวเลขมากกว่า 0'
+            };
+        }
+
         orderSession.quantity = quantity;
         orderSession.step = 'sweetness';
         pendingOrders.set(userId, orderSession);
 
-        // ส่งหน้าเลือกความหวาน
         return await createSweetnessSelection(
             orderSession.menuId,
             quantity,
@@ -104,7 +106,7 @@ async function handleQuantitySelection(userId, quantity) {
 /**
  * จัดการการเลือกความหวาน
  */
-async function handleSweetnessSelection(userId, sweetness) {
+async function handleSweetnessSelection(userId, sweetness, db) {
     try {
         const orderSession = pendingOrders.get(userId);
 
@@ -115,11 +117,10 @@ async function handleSweetnessSelection(userId, sweetness) {
             };
         }
 
-        // เตรียมข้อมูลสำหรับยืนยันคำสั่งซื้อ
         const orderData = {
             menuId: orderSession.menuId,
             menuName: orderSession.menuData.name,
-            menuPrice: Number(orderSession.menuData.price), // 🔧 แปลงเป็น number
+            menuPrice: Number(orderSession.menuData.price),
             menuImage: orderSession.menuData.image_url,
             quantity: orderSession.quantity,
             sweetness: sweetness,
@@ -127,14 +128,11 @@ async function handleSweetnessSelection(userId, sweetness) {
             userId: userId
         };
 
-
-        // อัพเดทเซสชัน
         orderSession.orderData = orderData;
         orderSession.step = 'confirmation';
         pendingOrders.set(userId, orderSession);
 
-        // ส่งหน้ายืนยันคำสั่งซื้อ
-        return await createOrderConfirmationMessage(orderData);
+        return await createOrderConfirmationMessage(orderData, db);
 
     } catch (error) {
         console.error('Error handling sweetness selection:', error);
@@ -148,7 +146,7 @@ async function handleSweetnessSelection(userId, sweetness) {
 /**
  * จัดการการยืนยันคำสั่งซื้อ
  */
-async function handleOrderConfirmation(userId, db) {
+async function handleOrderConfirmation(userId, db, pointsToUse = 0) {
     try {
         const orderSession = pendingOrders.get(userId);
 
@@ -161,24 +159,39 @@ async function handleOrderConfirmation(userId, db) {
 
         const orderData = orderSession.orderData;
 
-        // ตรวจสอบว่าผู้ใช้มีอยู่ในตาราง users หรือไม่
         const [userRows] = await db.query('SELECT * FROM users WHERE line_id = ?', [userId]);
         if (!userRows.length) {
-            console.error(`User not found: ${userId}`);
             return {
                 type: 'text',
                 text: 'ไม่พบข้อมูลผู้ใช้ กรุณาสมัครสมาชิกก่อนสั่งซื้อ'
             };
         }
 
-        // บันทึกคำสั่งซื้อลงฐานข้อมูล
+        let finalPrice = orderData.totalPrice;
+        let pointsUsed = 0;
+        let remainingPoints = userRows[0].points;
+
+        // จัดการการใช้แต้ม
+        if (pointsToUse > 0) {
+            const pointResult = await usePoints(userId, orderData.totalPrice, pointsToUse);
+            if (!pointResult.success) {
+                return {
+                    type: 'text',
+                    text: pointResult.message
+                };
+            }
+            pointsUsed = pointResult.pointsUsed;
+            finalPrice = pointResult.finalPrice;
+            remainingPoints = pointResult.remainingPoints;
+        }
+
         const [result] = await db.query(
-            'INSERT INTO orders (user_id, menu_id, quantity, sweetness_level, total_price, status, order_date) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-            [userId, orderData.menuId, orderData.quantity, orderData.sweetness, orderData.totalPrice, 'pending']
+            'INSERT INTO orders (user_id, menu_id, quantity, sweetness_level, total_price, points_used, status, order_date) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
+            [userId, orderData.menuId, orderData.quantity, orderData.sweetness, finalPrice, pointsUsed, 'pending']
         );
 
-        // คำนวณแต้ม (สมมติว่า 1 แต้มต่อ 50 บาท)
-        const pointsEarned = Math.floor(orderData.totalPrice / 50);
+        // คำนวณแต้มที่ได้รับ (1 แต้มต่อ 50 บาทของราคาที่ต้องชำระจริง)
+        const pointsEarned = Math.floor(finalPrice / 50);
 
         // อัพเดทแต้มในตาราง users
         await db.query(
@@ -186,17 +199,34 @@ async function handleOrderConfirmation(userId, db) {
             [pointsEarned, userId]
         );
 
-        // บันทึกประวัติแต้มในตาราง point_history
+        // บันทึกประวัติแต้ม (แต้มที่ได้รับ)
         await db.query(
             'INSERT INTO point_history (user_id, order_id, points_earned, description, created_at) VALUES (?, ?, ?, ?, NOW())',
             [userId, result.insertId, pointsEarned, `ได้รับ ${pointsEarned} แต้มจากการสั่งซื้อ ${orderData.menuName} (${orderData.quantity} แก้ว)`]
         );
 
-        // ลบเซสชัน
+        // บันทึกประวัติการใช้แต้ม (ถ้ามี)
+        if (pointsUsed > 0) {
+            await logPointUsage(
+                userId,
+                result.insertId,
+                pointsUsed,
+                `ใช้ ${pointsUsed} แต้มสำหรับการสั่งซื้อ ${orderData.menuName} (${orderData.quantity} แก้ว)`
+            );
+        }
+
         pendingOrders.delete(userId);
 
         // สร้างข้อความตอบกลับพร้อมแจ้งแต้ม
-        const replyText = `✅ สั่งซื้อสำเร็จ!\n\n🍵 ${orderData.menuName}\n📦 จำนวน: ${orderData.quantity} แก้ว\n🍯 ความหวาน: ${orderData.sweetness}\n💰 ราคารวม: ฿${orderData.totalPrice.toFixed(2)}\n🎉 ได้รับ ${pointsEarned} แต้ม!\n\n📞 ติดต่อร้านเพื่อชำระเงินและรับสินค้า`;
+        const replyText = `✅ สั่งซื้อสำเร็จ!\n\n` +
+            `🍵 ${orderData.menuName}\n` +
+            `📦 จำนวน: ${orderData.quantity} แก้ว\n` +
+            `🍯 ความหวาน: ${orderData.sweetness}\n` +
+            `${pointsUsed > 0 ? `🎯 ใช้แต้ม: ${pointsUsed} แต้ม\n` : ''}` +
+            `💰 ราคารวม: ฿${finalPrice.toFixed(2)}\n` +
+            `🎉 ได้รับ ${pointsEarned} แต้ม!\n` +
+            `🎯 แต้มคงเหลือ: ${remainingPoints + pointsEarned} แต้ม\n\n` +
+            `📞 รอชำระเงินและรอรับสินค้า`;
 
         return {
             type: 'text',
@@ -242,14 +272,14 @@ function extractMenuId(text) {
  * ตรวจสอบว่าข้อความเป็นการเลือกจำนวนหรือไม่
  */
 function isQuantitySelection(text) {
-    return text.toLowerCase().startsWith('qty_');
+    return text.toLowerCase().startsWith('จำนวน');
 }
 
 /**
  * ดึงจำนวนจากข้อความ
  */
 function extractQuantity(text) {
-    const match = text.match(/qty_(\d+)/i);
+    const match = text.match(/จำนวน\s*(\d+)\s*เเก้ว/i);
     return match ? parseInt(match[1]) : null;
 }
 
@@ -257,29 +287,37 @@ function extractQuantity(text) {
  * ตรวจสอบว่าข้อความเป็นการเลือกความหวานหรือไม่
  */
 function isSweetnessSelection(text) {
-    return text.toLowerCase().startsWith('sweet_');
+    return text.toLowerCase().startsWith('หวาน');
 }
 
 /**
  * ดึงระดับความหวานจากข้อความ
  */
 function extractSweetness(text) {
-    const match = text.match(/sweet_(.+)/i);
+    const match = text.match(/หวาน(.+)/i);
     return match ? match[1] : null;
 }
 
 /**
- * ตรวจสอบว่าข้อความเป็นการยืนยันคำสั่งซื้อหรือไม่
+ * ตรวจสอบว่าข้อความเป็นการยืนยันคำสั่งซื้อหรือการใช้แต้ม
  */
 function isOrderConfirm(text) {
-    return text.toLowerCase() === 'confirm_order';
+    return text.toLowerCase() === 'ยืนยันออเดอร์' || text.toLowerCase().startsWith('ใช้แต้ม');
+}
+
+/**
+ * ดึงจำนวนแต้มที่ต้องการใช้จากข้อความ
+ */
+function extractPointsToUse(text) {
+    const match = text.match(/ใช้แต้ม\s*(\d+)/i);
+    return match ? parseInt(match[1]) : 0;
 }
 
 /**
  * ตรวจสอบว่าข้อความเป็นการยกเลิกคำสั่งซื้อหรือไม่
  */
 function isOrderCancel(text) {
-    return text.toLowerCase() === 'cancel_order';
+    return text.toLowerCase() === 'ยกเลิกออเดอร์';
 }
 
 /**
@@ -296,7 +334,6 @@ function cleanExpiredSessions() {
     }
 }
 
-// ทำความสะอาดเซสชันทุก 30 นาที
 setInterval(cleanExpiredSessions, 30 * 60 * 1000);
 
 module.exports = {
@@ -312,5 +349,6 @@ module.exports = {
     isSweetnessSelection,
     extractSweetness,
     isOrderConfirm,
+    extractPointsToUse,
     isOrderCancel
 };

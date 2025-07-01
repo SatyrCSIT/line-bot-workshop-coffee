@@ -14,6 +14,7 @@ const {
     isSweetnessSelection,
     extractSweetness,
     isOrderConfirm,
+    extractPointsToUse,
     isOrderCancel
 } = require('./orderComponent');
 const db = require('./db');
@@ -136,12 +137,12 @@ async function handleEvent(event) {
 
                 return client.replyMessage(event.replyToken, {
                     type: 'text',
-                    text: `ยินดีต้อนรับคุณ ${displayName} สมัครสมาชิกเรียบร้อยแล้ว 🎉\nแต้มปัจจุบัน: 0 แต้ม`
+                    text: `ยินดีต้อนรับคุณ ${displayName} สมัครสมาชิกเรียบร้อยแล้ว 🎉\nแต้มปัจจุบัน: 0 แต้ม\n💡 ใช้ 1 แต้ม = 1 บาท สำหรับการสั่งซื้อ`
                 });
             } else {
                 return client.replyMessage(event.replyToken, {
                     type: 'text',
-                    text: `คุณได้สมัครสมาชิกแล้วครับ 🎯\nชื่อ: ${rows[0].name}\nแต้มปัจจุบัน: ${rows[0].points} แต้ม`
+                    text: `คุณได้สมัครสมาชิกแล้วครับ 🎯\nชื่อ: ${rows[0].name}\nแต้มปัจจุบัน: ${rows[0].points} แต้ม\n💡 ใช้ 1 แต้ม = 1 บาท สำหรับการสั่งซื้อ`
                 });
             }
         }
@@ -168,14 +169,15 @@ async function handleEvent(event) {
         if (isSweetnessSelection(text)) {
             const sweetness = extractSweetness(text);
             if (sweetness) {
-                const flexMessage = await handleSweetnessSelection(userId, sweetness);
+                const flexMessage = await handleSweetnessSelection(userId, sweetness, db);
                 return client.replyMessage(event.replyToken, flexMessage);
             }
         }
 
-        // ระบบสั่งซื้อ - ยืนยันคำสั่งซื้อ
+        // ระบบสั่งซื้อ - ยืนยันคำสั่งซื้อหรือใช้แต้ม
         if (isOrderConfirm(text)) {
-            const response = await handleOrderConfirmation(userId, db);
+            const pointsToUse = extractPointsToUse(text);
+            const response = await handleOrderConfirmation(userId, db, pointsToUse);
             return client.replyMessage(event.replyToken, response);
         }
 
@@ -222,20 +224,20 @@ async function handleEvent(event) {
         // ดูประวัติการสั่งซื้อ
         if (text.trim().toLowerCase() === 'ประวัติสั่งซื้อ' || text.trim().toLowerCase() === 'order history') {
             const [orderRows] = await db.query(`
-            SELECT o.*, m.name as menu_name 
-            FROM orders o 
-            JOIN menu m ON o.menu_id = m.id 
-            WHERE o.user_id = ? 
-            ORDER BY o.order_date DESC 
-            LIMIT 5
-                `, [userId]);
+                SELECT o.*, m.name as menu_name 
+                FROM orders o 
+                JOIN menu m ON o.menu_id = m.id 
+                WHERE o.user_id = ? 
+                ORDER BY o.order_date DESC 
+                LIMIT 5
+            `, [userId]);
 
             const [userRows] = await db.query('SELECT points FROM users WHERE line_id = ?', [userId]);
 
             if (orderRows.length === 0) {
                 return client.replyMessage(event.replyToken, {
                     type: 'text',
-                    text: `คุณยังไม่มีประวัติการสั่งซื้อ\n🎯 แต้มปัจจุบัน: ${userRows[0]?.points || 0} แต้ม`
+                    text: `คุณยังไม่มีประวัติการสั่งซื้อ\n🎯 แต้มปัจจุบัน: ${userRows[0]?.points || 0} แต้ม\n💡 ใช้ 1 แต้ม = 1 บาท สำหรับการสั่งซื้อ`
                 });
             }
 
@@ -246,10 +248,13 @@ async function handleEvent(event) {
                 historyText += `   จำนวน: ${order.quantity} แก้ว\n`;
                 historyText += `   ความหวาน: ${order.sweetness_level}\n`;
                 historyText += `   ราคา: ฿${order.total_price.toFixed(2)}\n`;
+                if (order.points_used > 0) {
+                    historyText += `   ใช้แต้ม: ${order.points_used} แต้ม\n`;
+                }
                 historyText += `   วันที่: ${orderDate}\n`;
                 historyText += `   สถานะ: ${order.status === 'pending' ? 'รอดำเนินการ' : 'สำเร็จ'}\n\n`;
             });
-            historyText += `🎯 แต้มปัจจุบัน: ${userRows[0]?.points || 0} แต้ม`;
+            historyText += `🎯 แต้มปัจจุบัน: ${userRows[0]?.points || 0} แต้ม\n💡 ใช้ 1 แต้ม = 1 บาท สำหรับการสั่งซื้อ`;
 
             return client.replyMessage(event.replyToken, {
                 type: 'text',
@@ -267,7 +272,7 @@ async function handleEvent(event) {
                 `📜 "ประวัติสั่งซื้อ" - ดูประวัติการสั่งซื้อและแต้ม\n` +
                 `🛒 กดปุ่ม "Order Now" ในเมนูเพื่อสั่งซื้อ\n\n` +
                 `🎯 ระบบแต้ม: รับ 1 แต้มทุก ๆ 50 บาทที่ใช้จ่าย\n` +
-                `💡 เคล็ดลับ: คุณสามารถเลือกจำนวนและความหวานได้เมื่อสั่งซื้อ!`;
+                `💡 ใช้ 1 แต้ม = 1 บาท สำหรับการสั่งซื้อ`;
 
             return client.replyMessage(event.replyToken, {
                 type: 'text',

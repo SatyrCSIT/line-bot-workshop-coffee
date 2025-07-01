@@ -98,4 +98,4 @@ async function createPromotionFlexMessage(db, event) {
     };
 }
 
-module.exports = { createPromotionFlexMessage, createMenuFlexMessage };
+module.exports = { createPromotionFlexMessage };
